@@ -19,3 +19,4 @@ Route::post('/messages/{message}/nack', [MessageController::class, 'nack']);
 
 Route::post('/broker/recover', [BrokerController::class, 'recover']);
 Route::get('/broker/stats', [BrokerController::class, 'stats']);
+Route::get('/broker/dashboard', [BrokerController::class, 'dashboard']);

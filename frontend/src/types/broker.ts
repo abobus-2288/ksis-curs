@@ -98,3 +98,9 @@ export interface MessageFilters {
   status?: MessageStatus | "all";
   priority?: QueuePriority | "all";
 }
+
+export interface BrokerSnapshot {
+  queues: QueueSummary[];
+  stats?: BrokerStats;
+  messages: BrokerMessage[];
+}

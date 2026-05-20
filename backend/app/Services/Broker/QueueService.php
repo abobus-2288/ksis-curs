@@ -4,6 +4,7 @@ namespace App\Services\Broker;
 
 use App\Enum\MessageStatuses;
 use App\Enum\QueueStatuses;
+use App\Events\BrokerStateUpdated;
 use App\Models\Message;
 use App\Models\Queue;
 use Illuminate\Database\Eloquent\Collection;
@@ -34,6 +35,7 @@ class QueueService
             ]);
 
             $this->redisBroker->registerQueue($queue);
+            event(new BrokerStateUpdated($queue->name));
 
             return $queue;
         });
@@ -48,6 +50,7 @@ class QueueService
         if (isset($data['status'])) {
             $queue->status = QueueStatuses::from($data['status']);
             $queue->save();
+            event(new BrokerStateUpdated($queue->name));
         }
 
         return $queue->refresh();
@@ -63,6 +66,7 @@ class QueueService
             $queueName = $queue->name;
             $queue->delete();
             $this->redisBroker->unregisterQueue($queueName);
+            event(new BrokerStateUpdated($queueName));
         });
     }
 

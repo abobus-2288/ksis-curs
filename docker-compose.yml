@@ -19,6 +19,7 @@ services:
     depends_on:
       - postgres
       - redis
+      - reverb
     ports:
       - "8000:8000"
 
@@ -27,6 +28,7 @@ services:
     restart: unless-stopped
     depends_on:
       - app
+      - reverb
     ports:
       - "3000:3000"
     volumes:
@@ -34,6 +36,47 @@ services:
       - /app/node_modules
     environment:
       NEXT_PUBLIC_API_URL: http://localhost:8000
+      NEXT_PUBLIC_REVERB_APP_KEY: tkudelhsk49ogwpx5w5w
+      NEXT_PUBLIC_REVERB_HOST: localhost
+      NEXT_PUBLIC_REVERB_PORT: 8080
+      NEXT_PUBLIC_REVERB_SCHEME: http
+
+  producer:
+    build: ./producer
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "3001:3000"
+    volumes:
+      - ./producer:/app
+      - /app/node_modules
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+
+  consumer:
+    build: ./consumer
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "3002:3000"
+    volumes:
+      - ./consumer:/app
+      - /app/node_modules
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+
+  reverb:
+    build: ./backend
+    restart: unless-stopped
+    command: php artisan reverb:start --host=0.0.0.0 --port=8080
+    volumes:
+      - ./backend:/app
+    depends_on:
+      - redis
+    ports:
+      - "8080:8080"
 
   redis:
     image: redis:8.6.2-alpine

@@ -3,9 +3,10 @@
 namespace App\Services\Broker;
 
 use App\Enum\MessageStatuses;
+use App\Events\BrokerStateUpdated;
 use App\Models\Message;
 use App\Models\Queue;
-use Illuminate\Support\Carbon;
+use Carbon\CarbonInterface;
 
 class MessageRecoveryService
 {
@@ -17,6 +18,10 @@ class MessageRecoveryService
         $timestamp = $now->timestamp;
         $delayed = $this->recoverDelayed($queue, $timestamp, $limit);
         $expired = $this->recoverExpiredProcessing($queue, $now, $limit);
+
+        if ($delayed + $expired > 0) {
+            event(new BrokerStateUpdated($queue->name));
+        }
 
         return [
             'delayed' => $delayed,
@@ -63,7 +68,7 @@ class MessageRecoveryService
         return $count;
     }
 
-    private function recoverExpiredProcessing(Queue $queue, Carbon $now, int $limit): int
+    private function recoverExpiredProcessing(Queue $queue, CarbonInterface $now, int $limit): int
     {
         $messageIds = $this->redisBroker->expiredProcessing($queue->name, $now->timestamp, $limit);
         $count = 0;

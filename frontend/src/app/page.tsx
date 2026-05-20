@@ -9,6 +9,7 @@ import { QueueList } from "@/components/QueueList";
 import { StatCards } from "@/components/StatCards";
 import { StatusBanner } from "@/components/StatusBanner";
 import { brokerApi } from "@/lib/api";
+import { createBrokerRealtime, type BrokerStateUpdatedEvent } from "@/lib/realtime";
 import type {
   BrokerMessage,
   BrokerStats,
@@ -30,7 +31,6 @@ export default function Home() {
   const [ackToken, setAckToken] = useState("");
   const [banner, setBanner] = useState<{ message: string; tone: BannerTone }>();
   const [isLoading, setIsLoading] = useState(false);
-
   const selectedQueueSummary = useMemo(
     () => queues.find((queue) => queue.name === selectedQueue),
     [queues, selectedQueue],
@@ -66,7 +66,7 @@ export default function Home() {
       setBanner({ message: success, tone: "success" });
     } catch (error) {
       setBanner({
-        message: error instanceof Error ? error.message : "Broker request failed",
+        message: error instanceof Error ? error.message : "Запрос к брокеру не выполнен",
         tone: "error",
       });
     } finally {
@@ -75,31 +75,58 @@ export default function Home() {
   }
 
   useEffect(() => {
-    runAction(refreshQueues, "Broker dashboard connected.");
+    runAction(refreshQueues, "Панель брокера подключена.");
   }, [refreshQueues]);
 
   useEffect(() => {
     refreshMessages().catch((error) => {
       setBanner({
-        message: error instanceof Error ? error.message : "Could not load messages",
+        message: error instanceof Error ? error.message : "Не удалось загрузить сообщения",
         tone: "error",
       });
     });
   }, [refreshMessages]);
 
+  useEffect(() => {
+    let isMounted = true;
+
+    try {
+      const echo = createBrokerRealtime();
+      echo.channel("broker").listen(".broker.state.updated", (event: BrokerStateUpdatedEvent) => {
+        if (!isMounted) {
+          return;
+        }
+
+        setQueues(event.snapshot.queues);
+        setStats(event.snapshot.stats);
+        setMessages(event.snapshot.messages);
+        setSelectedQueue((current) => current ?? event.snapshot.queues[0]?.name);
+      });
+
+      return () => {
+        isMounted = false;
+        echo.leave("broker");
+        echo.disconnect();
+      };
+    } catch (error) {
+      setBanner({
+        message: error instanceof Error ? error.message : "Не удалось подключиться к websocket",
+        tone: "error",
+      });
+    }
+  }, []);
+
   async function createQueue(name: string) {
     await runAction(async () => {
       await brokerApi.createQueue({ name });
-      await refreshQueues();
       setSelectedQueue(name);
-    }, `Queue ${name} created.`);
+    }, `Очередь ${name} создана.`);
   }
 
   async function publishMessage(queueName: string, payload: PublishMessageRequest) {
     await runAction(async () => {
       await brokerApi.publishMessage(queueName, payload);
-      await Promise.all([refreshQueues(), refreshMessages(queueName)]);
-    }, "Message published for external consumers.");
+    }, "Сообщение опубликовано для внешних потребителей.");
   }
 
   async function consumeMessage(consumerId: string, visibilityTimeout: number) {
@@ -114,8 +141,7 @@ export default function Home() {
       });
       setConsumed(response);
       setAckToken(response.ack_token ?? "");
-      await Promise.all([refreshQueues(), refreshMessages(selectedQueue)]);
-    }, "Consume request completed.");
+    }, "Запрос на получение сообщения выполнен.");
   }
 
   async function ackMessage(result: string) {
@@ -131,8 +157,7 @@ export default function Home() {
       });
       setConsumed(undefined);
       setAckToken("");
-      await Promise.all([refreshQueues(), refreshMessages(selectedQueue)]);
-    }, "Message acknowledged as done.");
+    }, "Сообщение подтверждено как выполненное.");
   }
 
   async function nackMessage(error: string, requeue: boolean) {
@@ -149,37 +174,17 @@ export default function Home() {
       });
       setConsumed(undefined);
       setAckToken("");
-      await Promise.all([refreshQueues(), refreshMessages(selectedQueue)]);
-    }, requeue ? "Message requeued for retry." : "Message marked as failed.");
+    }, requeue ? "Сообщение возвращено в очередь для повтора." : "Сообщение помечено как ошибочное.");
   }
 
   async function recoverMessages() {
     await runAction(async () => {
       await brokerApi.recover();
-      await Promise.all([refreshQueues(), refreshMessages(selectedQueue)]);
-    }, "Recovery moved eligible messages back to ready.");
+    }, "Восстановление вернуло подходящие сообщения в готовые.");
   }
 
   return (
     <main className="broker-shell">
-      <section className="hero-section">
-        <div className="hero-copy">
-          <span className="eyebrow">HTTP Message Broker</span>
-          <h1>Operate queues without Laravel workers.</h1>
-          <p>
-            Producers publish over HTTP, consumers reserve with visibility timeout, and the broker tracks
-            priority, delayed delivery, retries, ack/nack, and recovery.
-          </p>
-        </div>
-        <div className="hero-diagram" aria-label="Producer broker consumer flow">
-          <span>Producer</span>
-          <b>POST</b>
-          <span>Broker</span>
-          <b>ACK</b>
-          <span>Consumer</span>
-        </div>
-      </section>
-
       <StatusBanner
         message={banner?.message}
         tone={banner?.tone}
@@ -199,12 +204,12 @@ export default function Home() {
 
         <div className="workspace-column">
           <div className="queue-context-card">
-            <span className="eyebrow">Selected queue</span>
-            <h2>{selectedQueueSummary?.name ?? "Choose or create a queue"}</h2>
+            <span className="eyebrow">Выбранная очередь</span>
+            <h2>{selectedQueueSummary?.name ?? "Выберите или создайте очередь"}</h2>
             <p>
               {selectedQueueSummary
-                ? `${selectedQueueSummary.stats.total} messages tracked across lifecycle states.`
-                : "The dashboard will hydrate from GET /api/queues when the broker is available."}
+                ? `${selectedQueueSummary.stats.total} сообщений отслеживается по состояниям жизненного цикла.`
+                : "Панель загрузит данные из GET /api/queues, когда брокер будет доступен."}
             </p>
           </div>
 

@@ -4,6 +4,7 @@ namespace App\Services\Broker;
 
 use App\Enum\MessageStatuses;
 use App\Enum\QueueStatuses;
+use App\Events\BrokerStateUpdated;
 use App\Models\Message;
 use App\Models\Queue;
 use Illuminate\Support\Facades\DB;
@@ -56,6 +57,7 @@ class MessageConsumeService
                 'error' => null,
             ]);
             $this->redisBroker->setAckToken($message->id, $ackToken, $visibilityTimeout + 60);
+            event(new BrokerStateUpdated($queue->name));
 
             return [
                 'message' => $message->refresh(),

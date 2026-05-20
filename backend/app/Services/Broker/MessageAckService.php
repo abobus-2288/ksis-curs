@@ -3,6 +3,7 @@
 namespace App\Services\Broker;
 
 use App\Enum\MessageStatuses;
+use App\Events\BrokerStateUpdated;
 use App\Models\Message;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
@@ -21,6 +22,8 @@ class MessageAckService
                 'ack_token_hash' => null,
                 'completed_at' => now(),
             ]);
+
+            event(new BrokerStateUpdated($message->queue->name));
 
             return $message->refresh();
         });
@@ -52,6 +55,8 @@ class MessageAckService
                     'completed_at' => now(),
                 ]);
             }
+
+            event(new BrokerStateUpdated($queue->name));
 
             return $message->refresh();
         });

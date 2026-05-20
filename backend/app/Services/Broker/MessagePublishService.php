@@ -3,6 +3,7 @@
 namespace App\Services\Broker;
 
 use App\Enum\MessageStatuses;
+use App\Events\BrokerStateUpdated;
 use App\Models\Message;
 use App\Models\Queue;
 use Illuminate\Support\Facades\DB;
@@ -37,6 +38,8 @@ class MessagePublishService
             } else {
                 $this->redisBroker->enqueueReady($queue->name, $message->id, $message->priority);
             }
+
+            event(new BrokerStateUpdated($queue->name));
 
             return $message;
         });
