@@ -1,0 +1,48 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: queue_db
+      POSTGRES_USER: queue_user
+      POSTGRES_PASSWORD: queue_pass
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  app:
+    build: ./backend
+    restart: unless-stopped
+    volumes:
+      - ./backend:/app
+    depends_on:
+      - postgres
+      - redis
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+
+  redis:
+    image: redis:8.6.2-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+
+
+volumes:
+  pgdata:
+  redisdata:

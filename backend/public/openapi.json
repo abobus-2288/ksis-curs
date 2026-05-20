@@ -1,0 +1,619 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "HTTP Message Broker API",
+    "description": "Distributed HTTP message broker API. External producer services publish messages, external consumer services consume messages, process them outside Laravel, and confirm processing with ack/nack. Laravel does not use its own queue workers for message processing.",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8000/api",
+      "description": "Local Docker API"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Queues",
+      "description": "Queue management"
+    },
+    {
+      "name": "Messages",
+      "description": "Publish, consume, ack and nack broker messages"
+    },
+    {
+      "name": "Broker",
+      "description": "Broker-wide recovery and statistics"
+    }
+  ],
+  "paths": {
+    "/queues": {
+      "get": {
+        "tags": ["Queues"],
+        "summary": "List queues",
+        "responses": {
+          "200": {
+            "description": "Queue list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": { "$ref": "#/components/schemas/Queue" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["Queues"],
+        "summary": "Create queue",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CreateQueueRequest" },
+              "example": { "name": "orders" }
+            }
+          }
+        },
+        "responses": {
+          "201": { "$ref": "#/components/responses/QueueResponse" },
+          "422": { "$ref": "#/components/responses/ValidationError" }
+        }
+      }
+    },
+    "/queues/{name}": {
+      "parameters": [
+        { "$ref": "#/components/parameters/QueueName" }
+      ],
+      "get": {
+        "tags": ["Queues"],
+        "summary": "Get queue details",
+        "responses": {
+          "200": { "$ref": "#/components/responses/QueueResponse" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      },
+      "patch": {
+        "tags": ["Queues"],
+        "summary": "Update queue status",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/UpdateQueueRequest" },
+              "examples": {
+                "pause": { "value": { "status": "paused" } },
+                "resume": { "value": { "status": "active" } },
+                "booleanPause": { "value": { "paused": true } }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "$ref": "#/components/responses/QueueResponse" },
+          "422": { "$ref": "#/components/responses/ValidationError" }
+        }
+      },
+      "delete": {
+        "tags": ["Queues"],
+        "summary": "Delete queue",
+        "parameters": [
+          {
+            "name": "force",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "boolean", "default": false },
+            "description": "Delete even if the queue contains messages."
+          }
+        ],
+        "responses": {
+          "204": { "description": "Queue deleted" },
+          "422": { "$ref": "#/components/responses/Error" }
+        }
+      }
+    },
+    "/queues/{name}/messages": {
+      "parameters": [
+        { "$ref": "#/components/parameters/QueueName" }
+      ],
+      "get": {
+        "tags": ["Messages"],
+        "summary": "List queue messages",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "schema": { "$ref": "#/components/schemas/MessageStatus" },
+            "required": false
+          },
+          {
+            "name": "priority",
+            "in": "query",
+            "schema": { "$ref": "#/components/schemas/Priority" },
+            "required": false
+          },
+          {
+            "name": "per_page",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 1, "default": 25 },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated messages",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/PaginatedMessages" }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["Messages"],
+        "summary": "Publish message",
+        "description": "Producer publishes a message to the broker. The message is processed later by an external consumer service.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/PublishMessageRequest" },
+              "example": {
+                "payload": {
+                  "order_id": 1001,
+                  "action": "send_invoice"
+                },
+                "priority": "high",
+                "delay_seconds": 0,
+                "max_attempts": 3
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "$ref": "#/components/responses/MessageResponse" },
+          "422": { "$ref": "#/components/responses/ValidationError" }
+        }
+      }
+    },
+    "/queues/{name}/messages/consume": {
+      "parameters": [
+        { "$ref": "#/components/parameters/QueueName" }
+      ],
+      "post": {
+        "tags": ["Messages"],
+        "summary": "Consume next message",
+        "description": "External consumer reserves the next available message. The response contains an ack_token that must be used for ack/nack before visibility timeout expires.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ConsumeMessageRequest" },
+              "example": {
+                "consumer_id": "billing-service-1",
+                "visibility_timeout": 60
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Reserved message or empty queue response",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ConsumeMessageResponse" }
+              }
+            }
+          },
+          "409": { "$ref": "#/components/responses/Error" },
+          "422": { "$ref": "#/components/responses/ValidationError" }
+        }
+      }
+    },
+    "/messages/{id}/ack": {
+      "parameters": [
+        { "$ref": "#/components/parameters/MessageId" }
+      ],
+      "post": {
+        "tags": ["Messages"],
+        "summary": "Acknowledge successful message processing",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/AckMessageRequest" },
+              "example": {
+                "ack_token": "paste-token-from-consume-response",
+                "result": {
+                  "status": "invoice_sent"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "$ref": "#/components/responses/MessageResponse" },
+          "409": { "$ref": "#/components/responses/Error" },
+          "422": { "$ref": "#/components/responses/ValidationError" }
+        }
+      }
+    },
+    "/messages/{id}/nack": {
+      "parameters": [
+        { "$ref": "#/components/parameters/MessageId" }
+      ],
+      "post": {
+        "tags": ["Messages"],
+        "summary": "Reject or requeue failed message processing",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/NackMessageRequest" },
+              "example": {
+                "ack_token": "paste-token-from-consume-response",
+                "error": "external service timeout",
+                "requeue": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "$ref": "#/components/responses/MessageResponse" },
+          "409": { "$ref": "#/components/responses/Error" },
+          "422": { "$ref": "#/components/responses/ValidationError" }
+        }
+      }
+    },
+    "/broker/recover": {
+      "post": {
+        "tags": ["Broker"],
+        "summary": "Recover delayed and expired processing messages",
+        "description": "Moves due delayed messages and expired processing reservations back into ready queues. Intended for demos or external cron via HTTP, not Laravel queue workers.",
+        "responses": {
+          "200": {
+            "description": "Recovery counters",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": { "$ref": "#/components/schemas/RecoveryStats" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/broker/stats": {
+      "get": {
+        "tags": ["Broker"],
+        "summary": "Get broker-wide stats",
+        "responses": {
+          "200": {
+            "description": "Broker statistics",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": { "$ref": "#/components/schemas/BrokerStats" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "QueueName": {
+        "name": "name",
+        "in": "path",
+        "required": true,
+        "schema": { "type": "string", "example": "orders" }
+      },
+      "MessageId": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": { "type": "integer", "example": 1 }
+      }
+    },
+    "responses": {
+      "QueueResponse": {
+        "description": "Queue response",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "data": { "$ref": "#/components/schemas/Queue" }
+              }
+            }
+          }
+        }
+      },
+      "MessageResponse": {
+        "description": "Message response",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "data": { "$ref": "#/components/schemas/Message" }
+              }
+            }
+          }
+        }
+      },
+      "Error": {
+        "description": "Application error",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+          }
+        }
+      },
+      "ValidationError": {
+        "description": "Validation error",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/ValidationErrorResponse" }
+          }
+        }
+      },
+      "NotFound": {
+        "description": "Resource not found",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "QueueStatus": {
+        "type": "string",
+        "enum": ["active", "paused", "suspended", "errored"]
+      },
+      "MessageStatus": {
+        "type": "string",
+        "enum": ["pending", "delayed", "processing", "done", "failed", "dead"]
+      },
+      "Priority": {
+        "type": "string",
+        "enum": ["high", "normal", "low"]
+      },
+      "CreateQueueRequest": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 255,
+            "pattern": "^[A-Za-z0-9_.-]+$"
+          }
+        }
+      },
+      "UpdateQueueRequest": {
+        "type": "object",
+        "properties": {
+          "status": { "$ref": "#/components/schemas/QueueStatus" },
+          "paused": { "type": "boolean" }
+        },
+        "description": "Send either status or paused. status accepts active/paused for normal UI control."
+      },
+      "PublishMessageRequest": {
+        "type": "object",
+        "required": ["payload"],
+        "properties": {
+          "payload": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "priority": {
+            "$ref": "#/components/schemas/Priority"
+          },
+          "delay_seconds": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 604800,
+            "default": 0
+          },
+          "max_attempts": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 25,
+            "default": 3
+          }
+        }
+      },
+      "ConsumeMessageRequest": {
+        "type": "object",
+        "required": ["consumer_id"],
+        "properties": {
+          "consumer_id": {
+            "type": "string",
+            "maxLength": 255
+          },
+          "visibility_timeout": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 86400,
+            "default": 60
+          }
+        }
+      },
+      "AckMessageRequest": {
+        "type": "object",
+        "required": ["ack_token"],
+        "properties": {
+          "ack_token": { "type": "string" },
+          "result": {
+            "type": "object",
+            "nullable": true,
+            "additionalProperties": true
+          }
+        }
+      },
+      "NackMessageRequest": {
+        "type": "object",
+        "required": ["ack_token"],
+        "properties": {
+          "ack_token": { "type": "string" },
+          "error": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 5000
+          },
+          "requeue": {
+            "type": "boolean",
+            "default": true
+          }
+        }
+      },
+      "Queue": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer", "example": 1 },
+          "name": { "type": "string", "example": "orders" },
+          "status": { "$ref": "#/components/schemas/QueueStatus" },
+          "stats": { "$ref": "#/components/schemas/QueueStats" },
+          "created_at": { "type": "string", "format": "date-time", "nullable": true },
+          "updated_at": { "type": "string", "format": "date-time", "nullable": true }
+        }
+      },
+      "QueueStats": {
+        "type": "object",
+        "properties": {
+          "total": { "type": "integer" },
+          "pending": { "type": "integer" },
+          "delayed": { "type": "integer" },
+          "processing": { "type": "integer" },
+          "done": { "type": "integer" },
+          "failed": { "type": "integer" },
+          "dead": { "type": "integer" },
+          "redis": {
+            "type": "object",
+            "properties": {
+              "ready": { "type": "integer" },
+              "delayed": { "type": "integer" },
+              "processing": { "type": "integer" }
+            }
+          }
+        }
+      },
+      "Message": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer", "example": 1 },
+          "queue_id": { "type": "integer", "example": 1 },
+          "queue_name": { "type": "string", "nullable": true, "example": "orders" },
+          "payload": { "type": "object", "additionalProperties": true },
+          "status": { "$ref": "#/components/schemas/MessageStatus" },
+          "priority": { "$ref": "#/components/schemas/Priority" },
+          "attempts": { "type": "integer" },
+          "max_attempts": { "type": "integer" },
+          "available_at": { "type": "string", "format": "date-time", "nullable": true },
+          "reserved_until": { "type": "string", "format": "date-time", "nullable": true },
+          "consumer_id": { "type": "string", "nullable": true },
+          "result": { "type": "object", "nullable": true, "additionalProperties": true },
+          "error": { "type": "string", "nullable": true },
+          "completed_at": { "type": "string", "format": "date-time", "nullable": true },
+          "created_at": { "type": "string", "format": "date-time", "nullable": true },
+          "updated_at": { "type": "string", "format": "date-time", "nullable": true }
+        }
+      },
+      "ConsumeMessageResponse": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "object",
+            "properties": {
+              "message": {
+                "oneOf": [
+                  { "$ref": "#/components/schemas/Message" },
+                  { "type": "null" }
+                ]
+              },
+              "ack_token": {
+                "type": "string",
+                "nullable": true
+              },
+              "empty": {
+                "type": "boolean"
+              }
+            }
+          },
+          "message": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "PaginatedMessages": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Message" }
+          },
+          "links": { "type": "object", "additionalProperties": true },
+          "meta": { "type": "object", "additionalProperties": true }
+        }
+      },
+      "BrokerStats": {
+        "type": "object",
+        "properties": {
+          "total": { "type": "integer" },
+          "pending": { "type": "integer" },
+          "delayed": { "type": "integer" },
+          "processing": { "type": "integer" },
+          "done": { "type": "integer" },
+          "failed": { "type": "integer" },
+          "dead": { "type": "integer" },
+          "queues": { "type": "integer" }
+        }
+      },
+      "RecoveryStats": {
+        "type": "object",
+        "properties": {
+          "delayed": { "type": "integer" },
+          "expired": { "type": "integer" }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "message": { "type": "string" }
+        }
+      },
+      "ValidationErrorResponse": {
+        "type": "object",
+        "properties": {
+          "message": { "type": "string" },
+          "errors": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

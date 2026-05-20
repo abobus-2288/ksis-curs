@@ -1,0 +1,13 @@
+# IDE
+.idea/
+.vscode/
+.zed/
+.nova/
+.fleet/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+.env.docker
